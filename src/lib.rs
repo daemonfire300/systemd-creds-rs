@@ -1,11 +1,6 @@
 mod random;
 
-use std::{
-    fs::OpenOptions,
-    io::Read,
-    path::{Path, PathBuf},
-    time::SystemTime,
-};
+use std::{fs::OpenOptions, io::Read, path::PathBuf};
 
 #[derive(Debug)]
 pub enum Error {
