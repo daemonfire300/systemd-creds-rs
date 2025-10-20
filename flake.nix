@@ -1,5 +1,5 @@
 {
-  description = "Build a cargo project";
+  description = "systemd-creds-rs lib";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
