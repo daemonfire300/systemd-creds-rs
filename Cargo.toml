@@ -2,6 +2,13 @@
 name = "systemd-creds-rs"
 version = "0.1.0"
 edition = "2024"
+authors = ["Julius Foitzik <info@accountr.eu>"]
+license = "MIT"
+description = "Tiny helper library for consuming systemd managed secrets"
+keywords = ["systemd", "env", "secrets"]
+homepage = "https://github.com/daemonfire300/systemd-creds-rs"
+repository = "https://github.com/daemonfire300/systemd-creds-rs"
+readme = "README.md"
 
 [dependencies]
 
