@@ -1,53 +1,152 @@
 {
-  description = "An empty flake template that you can adapt to your own environment";
+  description = "Build a cargo project";
 
-  # Flake inputs
-  inputs.nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0"; # Stable Nixpkgs
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-  # Flake outputs
+    crane.url = "github:ipetkov/crane";
+
+    flake-utils.url = "github:numtide/flake-utils";
+
+    advisory-db = {
+      url = "github:rustsec/advisory-db";
+      flake = false;
+    };
+  };
+
   outputs =
-    { self, ... }@inputs:
-    let
-      # The systems supported for this flake's outputs
-      supportedSystems = [
-        "x86_64-linux" # 64-bit Intel/AMD Linux
-        "aarch64-linux" # 64-bit ARM Linux
-        "x86_64-darwin" # 64-bit Intel macOS
-        "aarch64-darwin" # 64-bit ARM macOS
-      ];
+    {
+      self,
+      nixpkgs,
+      crane,
+      flake-utils,
+      advisory-db,
+      ...
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
 
-      # Helper for providing system-specific attributes
-      forEachSupportedSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
-          system:
-          f {
-            # Provides a system-specific, configured Nixpkgs
-            pkgs = import inputs.nixpkgs {
-              inherit system;
-              # Enable using unfree packages
-              config.allowUnfree = true;
-            };
+        inherit (pkgs) lib;
+
+        craneLib = crane.mkLib pkgs;
+        src = craneLib.cleanCargoSource ./.;
+
+        # Common arguments can be set here to avoid repeating them later
+        commonArgs = {
+          inherit src;
+          strictDeps = true;
+
+          buildInputs = [
+            # Add additional build inputs here
+          ]
+          ++ lib.optionals pkgs.stdenv.isDarwin [
+            # Additional darwin specific inputs can be set here
+            pkgs.libiconv
+          ];
+
+          # Additional environment variables can be set directly
+          # MY_CUSTOM_VAR = "some value";
+        };
+
+        # Build *just* the cargo dependencies, so we can reuse
+        # all of that work (e.g. via cachix) when running in CI
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+        # Build the actual crate itself, reusing the dependency
+        # artifacts from above.
+        systemd-creds-rs = craneLib.buildPackage (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
           }
         );
-    in
-    {
-      # Development environments output by this flake
-      devShells = forEachSupportedSystem (
-        { pkgs }:
-        {
-          # Run `nix develop` to activate this environment or `direnv allow` if you have direnv installed
-          default = pkgs.mkShell {
-            # The Nix packages provided in the environment
-            packages = with pkgs; [ ];
+      in
+      {
+        checks = {
+          # Build the crate as part of `nix flake check` for convenience
+          inherit systemd-creds-rs;
 
-            # Set any environment variables for your development environment
-            env = { };
+          # Run clippy (and deny all warnings) on the crate source,
+          # again, reusing the dependency artifacts from above.
+          #
+          # Note that this is done as a separate derivation so that
+          # we can block the CI if there are issues here, but not
+          # prevent downstream consumers from building our crate by itself.
+          systemd-creds-rs-clippy = craneLib.cargoClippy (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+            }
+          );
 
-            # Add any shell logic you want executed when the environment is activated
-            shellHook = "";
+          systemd-creds-rs-doc = craneLib.cargoDoc (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              # This can be commented out or tweaked as necessary, e.g. set to
+              # `--deny rustdoc::broken-intra-doc-links` to only enforce that lint
+              env.RUSTDOCFLAGS = "--deny warnings";
+            }
+          );
+
+          # Check formatting
+          systemd-creds-rs-fmt = craneLib.cargoFmt {
+            inherit src;
           };
-        }
-      );
-    };
+
+          systemd-creds-rs-toml-fmt = craneLib.taploFmt {
+            src = pkgs.lib.sources.sourceFilesBySuffices src [ ".toml" ];
+            # taplo arguments can be further customized below as needed
+            # taploExtraArgs = "--config ./taplo.toml";
+          };
+
+          # Audit dependencies
+          systemd-creds-rs-audit = craneLib.cargoAudit {
+            inherit src advisory-db;
+          };
+
+          # Audit licenses
+          systemd-creds-rs-deny = craneLib.cargoDeny {
+            inherit src;
+          };
+
+          # Run tests with cargo-nextest
+          # Consider setting `doCheck = false` on `systemd-creds-rs` if you do not want
+          # the tests to run twice
+          systemd-creds-rs-nextest = craneLib.cargoNextest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              partitions = 1;
+              partitionType = "count";
+              cargoNextestPartitionsExtraArgs = "--no-tests=pass";
+            }
+          );
+        };
+
+        packages = {
+          default = systemd-creds-rs;
+        };
+
+        apps.default = flake-utils.lib.mkApp {
+          drv = systemd-creds-rs;
+        };
+
+        devShells.default = craneLib.devShell {
+          # Inherit inputs from checks.
+          checks = self.checks.${system};
+
+          # Additional dev-shell environment variables can be set directly
+          # MY_CUSTOM_DEVELOPMENT_VAR = "something else";
+
+          # Extra inputs can be added here; cargo and rustc are provided by default.
+          packages = [
+            # pkgs.ripgrep
+          ];
+        };
+      }
+    );
 }
