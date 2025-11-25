@@ -14,17 +14,8 @@
     };
   };
 
-  outputs =
-    {
-      self,
-      nixpkgs,
-      crane,
-      flake-utils,
-      advisory-db,
-      ...
-    }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
+  outputs = { self, nixpkgs, crane, flake-utils, advisory-db, ... }:
+    flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
@@ -40,8 +31,7 @@
 
           buildInputs = [
             # Add additional build inputs here
-          ]
-          ++ lib.optionals pkgs.stdenv.isDarwin [
+          ] ++ lib.optionals pkgs.stdenv.isDarwin [
             # Additional darwin specific inputs can be set here
             pkgs.libiconv
           ];
@@ -56,14 +46,9 @@
 
         # Build the actual crate itself, reusing the dependency
         # artifacts from above.
-        systemd-creds-rs = craneLib.buildPackage (
-          commonArgs
-          // {
-            inherit cargoArtifacts;
-          }
-        );
-      in
-      {
+        systemd-creds-rs =
+          craneLib.buildPackage (commonArgs // { inherit cargoArtifacts; });
+      in {
         checks = {
           # Build the crate as part of `nix flake check` for convenience
           inherit systemd-creds-rs;
@@ -74,28 +59,20 @@
           # Note that this is done as a separate derivation so that
           # we can block the CI if there are issues here, but not
           # prevent downstream consumers from building our crate by itself.
-          systemd-creds-rs-clippy = craneLib.cargoClippy (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
-            }
-          );
+          systemd-creds-rs-clippy = craneLib.cargoClippy (commonArgs // {
+            inherit cargoArtifacts;
+            cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+          });
 
-          systemd-creds-rs-doc = craneLib.cargoDoc (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-              # This can be commented out or tweaked as necessary, e.g. set to
-              # `--deny rustdoc::broken-intra-doc-links` to only enforce that lint
-              env.RUSTDOCFLAGS = "--deny warnings";
-            }
-          );
+          systemd-creds-rs-doc = craneLib.cargoDoc (commonArgs // {
+            inherit cargoArtifacts;
+            # This can be commented out or tweaked as necessary, e.g. set to
+            # `--deny rustdoc::broken-intra-doc-links` to only enforce that lint
+            env.RUSTDOCFLAGS = "--deny warnings";
+          });
 
           # Check formatting
-          systemd-creds-rs-fmt = craneLib.cargoFmt {
-            inherit src;
-          };
+          systemd-creds-rs-fmt = craneLib.cargoFmt { inherit src; };
 
           systemd-creds-rs-toml-fmt = craneLib.taploFmt {
             src = pkgs.lib.sources.sourceFilesBySuffices src [ ".toml" ];
@@ -104,36 +81,26 @@
           };
 
           # Audit dependencies
-          systemd-creds-rs-audit = craneLib.cargoAudit {
-            inherit src advisory-db;
-          };
+          systemd-creds-rs-audit =
+            craneLib.cargoAudit { inherit src advisory-db; };
 
           # Audit licenses
-          systemd-creds-rs-deny = craneLib.cargoDeny {
-            inherit src;
-          };
+          systemd-creds-rs-deny = craneLib.cargoDeny { inherit src; };
 
           # Run tests with cargo-nextest
           # Consider setting `doCheck = false` on `systemd-creds-rs` if you do not want
           # the tests to run twice
-          systemd-creds-rs-nextest = craneLib.cargoNextest (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-              partitions = 1;
-              partitionType = "count";
-              cargoNextestPartitionsExtraArgs = "--no-tests=pass";
-            }
-          );
+          systemd-creds-rs-nextest = craneLib.cargoNextest (commonArgs // {
+            inherit cargoArtifacts;
+            partitions = 1;
+            partitionType = "count";
+            cargoNextestPartitionsExtraArgs = "--no-tests=pass";
+          });
         };
 
-        packages = {
-          default = systemd-creds-rs;
-        };
+        packages = { default = systemd-creds-rs; };
 
-        apps.default = flake-utils.lib.mkApp {
-          drv = systemd-creds-rs;
-        };
+        apps.default = flake-utils.lib.mkApp { drv = systemd-creds-rs; };
 
         devShells.default = craneLib.devShell {
           # Inherit inputs from checks.
@@ -147,6 +114,5 @@
             # pkgs.ripgrep
           ];
         };
-      }
-    );
+      });
 }
