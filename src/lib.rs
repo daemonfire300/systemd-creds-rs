@@ -18,7 +18,7 @@ impl From<std::io::Error> for Error {
     }
 }
 
-const CREDENTIALS_DIRECTORY: &'static str = "CREDENTIALS_DIRECTORY";
+const CREDENTIALS_DIRECTORY: &str = "CREDENTIALS_DIRECTORY";
 
 pub fn discover() -> Result<Vec<PathBuf>, Error> {
     let dir = std::env::var(CREDENTIALS_DIRECTORY)?;
