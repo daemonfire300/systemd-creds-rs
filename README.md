@@ -1,3 +1,7 @@
+# Motivation
+
+Minimalistic library as drop-in to easily discover/load secrets defined via systemd.
+
 # TODO
 
  1. Add oxalica overlay for devShell or checkout how to build crane devShell ✅
