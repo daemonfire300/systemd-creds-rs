@@ -1,5 +1,3 @@
-mod random;
-
 use std::{fs::OpenOptions, io::Read, path::PathBuf};
 
 #[derive(Debug)]
@@ -87,48 +85,20 @@ pub fn load_all() -> Result<Vec<Result<(String, Vec<u8>), Error>>, Error> {
 mod tests {
     use std::path::PathBuf;
 
+    use tempfile::tempdir;
+
     use crate::{CREDENTIALS_DIRECTORY, discover};
-
-    fn uuid() -> String {
-        let mut bytes = vec![0; 16]; // 128 bit should be 16 x u8
-        #[cfg(target_vendor = "apple")]
-        {
-            use crate::random;
-
-            random::apple::fill_bytes(&mut bytes);
-        }
-        #[cfg(target_os = "linux")]
-        {
-            use crate::random;
-
-            random::linux::fill_bytes(&mut bytes);
-        }
-        let bytes: [u8; 16] = bytes[0..16].try_into().unwrap();
-        let bits: u128 = u128::from_le_bytes(bytes);
-        let g1 = (bits >> 96) as u32;
-        let g2 = (bits >> 80) as u16;
-        let g3 = (0x4000 | (bits >> 64) & 0x0fff) as u16;
-        let g4 = (0x8000 | (bits >> 48) & 0x3fff) as u16;
-        let g5 = (bits & 0xffffffffffff) as u64;
-        let uuid = format!("{g1:08x}-{g2:04x}-{g3:04x}-{g4:04x}-{g5:012x}");
-        uuid
-    }
-
-    fn create_tmp_dir() -> Result<PathBuf, std::io::Error> {
-        let tmp_dir = std::env::temp_dir();
-        let dir = tmp_dir.join(PathBuf::from(format!(
-            "systemd-creds-rs-test-run-{}",
-            uuid()
-        )));
-        std::fs::create_dir(&dir)?;
-        Ok(dir)
-    }
 
     #[test]
     fn discover_none() {
-        let dir = create_tmp_dir().unwrap();
+        let dir = tempdir().expect("should be able to create tempdir");
         unsafe {
-            std::env::set_var(CREDENTIALS_DIRECTORY, dir.to_str().unwrap());
+            std::env::set_var(
+                CREDENTIALS_DIRECTORY,
+                dir.path()
+                    .to_str()
+                    .expect("should be able to convert OsStr to &str"),
+            );
         }
         let creds = discover().unwrap();
         assert_eq!(0, creds.len());
