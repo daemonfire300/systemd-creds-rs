@@ -3,41 +3,38 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     crane.url = "github:ipetkov/crane";
-
     flake-utils.url = "github:numtide/flake-utils";
-
     advisory-db = {
       url = "github:rustsec/advisory-db";
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, crane, flake-utils, advisory-db, ... }:
+  outputs =
+    { self, nixpkgs, rust-overlay, crane, flake-utils, advisory-db, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ (import rust-overlay) ];
+        };
 
-        inherit (pkgs) lib;
+        craneLib = (crane.mkLib pkgs).overrideToolchain (p:
+          p.rust-bin.stable.latest.default.override {
+            extensions = [ "rust-std" "rust-src" ];
+          });
 
-        craneLib = crane.mkLib pkgs;
         src = craneLib.cleanCargoSource ./.;
 
-        # Common arguments can be set here to avoid repeating them later
         commonArgs = {
           inherit src;
           strictDeps = true;
-
-          buildInputs = [
-            # Add additional build inputs here
-          ] ++ lib.optionals pkgs.stdenv.isDarwin [
-            # Additional darwin specific inputs can be set here
-            pkgs.libiconv
-          ];
-
-          # Additional environment variables can be set directly
-          # MY_CUSTOM_VAR = "some value";
+          buildInputs = [ ];
         };
 
         # Build *just* the cargo dependencies, so we can reuse
@@ -61,6 +58,7 @@
           # prevent downstream consumers from building our crate by itself.
           systemd-creds-rs-clippy = craneLib.cargoClippy (commonArgs // {
             inherit cargoArtifacts;
+            # TODO(juf): Change this
             cargoClippyExtraArgs = "--all-targets -- --deny warnings";
           });
 
@@ -105,14 +103,7 @@
         devShells.default = craneLib.devShell {
           # Inherit inputs from checks.
           checks = self.checks.${system};
-
-          # Additional dev-shell environment variables can be set directly
-          # MY_CUSTOM_DEVELOPMENT_VAR = "something else";
-
-          # Extra inputs can be added here; cargo and rustc are provided by default.
-          packages = [
-            # pkgs.ripgrep
-          ];
+          packages = [ pkgs.rust-bin.stable.latest.rust-analyzer ];
         };
       });
 }

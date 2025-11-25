@@ -94,14 +94,14 @@ pub mod linux {
     // `GRND_NONBLOCK` fallback and use `/dev/random` instead of `/dev/urandom`
     // when secure data is required.
 
-    use crate::fs::File;
-    use crate::io::Read;
-    use crate::os::fd::AsRawFd;
-    use crate::sync::OnceLock;
-    use crate::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-    use crate::sync::atomic::{Atomic, AtomicBool};
-    use crate::sys::pal::os::errno;
-    use crate::sys::pal::weak::syscall;
+    use std::fs::File;
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    use std::sync::OnceLock;
+    use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+    use std::sync::atomic::{Atomic, AtomicBool};
+    use std::sys::pal::os::errno;
+    use std::sys::pal::weak::syscall;
 
     fn getrandom(mut bytes: &mut [u8], insecure: bool) {
         // A weak symbol allows interposition, e.g. for perf measurements that want to
