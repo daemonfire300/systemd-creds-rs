@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/magic-nix-cache-action@v13
+      - name: Build package check
+        run: nix build .#checks.x86_64-linux.package
+      - name: Build clippy check
+        run: nix build .#checks.x86_64-linux.clippy
+      - name: Build format check
+        run: nix build .#checks.x86_64-linux.fmt
+      - name: Build taplo check
+        run: nix build .#checks.x86_64-linux.toml-fmt
+      - name: Build docs check
+        run: nix build .#checks.x86_64-linux.doc
+      - name: Build audit check
+        run: nix build .#checks.x86_64-linux.audit
+      - name: Build deny check
+        run: nix build .#checks.x86_64-linux.deny
+      - name: Build nextest check
+        run: nix build .#checks.x86_64-linux.nextest
