@@ -2,17 +2,25 @@
 name = "systemd-creds-rs"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.91"
 authors = ["Julius Foitzik <info@accountr.eu>"]
-license = "MIT or Apache-2.0"
+license = "MIT OR Apache-2.0"
 description = "Tiny helper library for consuming systemd managed secrets"
 keywords = ["systemd", "env", "secrets"]
+categories = ["os::linux-apis"]
 homepage = "https://github.com/daemonfire300/systemd-creds-rs"
 repository = "https://github.com/daemonfire300/systemd-creds-rs"
+documentation = "https://docs.rs/systemd-creds-rs"
 readme = "README.md"
+include = [
+  "/Cargo.toml",
+  "/Cargo.lock",
+  "/LICENSE",
+  "/README.md",
+  "/src/**",
+  "/docs/**",
+  "/examples/consumer-app/**",
+]
 
 [dependencies]
-libc = "1.0.0-alpha.1"
 tempfile = "3.23.0"
-
-[target.'cfg(target_vendor="apple")'.dependencies]
-libc = "1.0.0-alpha.1"

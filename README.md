@@ -1,15 +1,59 @@
-# Motivation
+# `systemd-creds-rs`
 
-Minimalistic library as drop-in to easily discover/load secrets defined via systemd.
+`systemd-creds-rs` is a small Rust library for processes that receive
+credentials from `systemd` through `CREDENTIALS_DIRECTORY`.
 
-Idea is to also/maybe integrate this into [https://github.com/cachix/secretspec](https://github.com/cachix/secretspec) as provider.
+It helps with two common tasks:
 
-# TODO
+- discover which credential files were provided
+- load all top-level credential files into memory
 
- 1. Add oxalica overlay for devShell or checkout how to build crane devShell ✅
- 2. ~~Fix incorrect use statements in the linux specific random mod.~~ (Excercise for another day, I caved in and am just using `tempfile` for now) ✅
- 3. Add documentation
- 4. Add tiny bit more tests
- 5. Add sample systemd example
- 6. Publish
- 7. Try to integrate as provider for `secretspec` and submit PR
+## Supported model
+
+This crate assumes the current process is started by `systemd`, or that the
+caller has set `CREDENTIALS_DIRECTORY` to a directory that follows the same
+layout as `systemd` credentials.
+
+The crate does not provision credentials on its own. It reads the files exposed
+to the process.
+
+## Usage
+
+```rust
+fn main() -> Result<(), systemd_creds_rs::Error> {
+    for credential in systemd_creds_rs::load_all()? {
+        let (name, bytes) = credential?;
+        println!("{name}: {} bytes", bytes.len());
+    }
+
+    Ok(())
+}
+```
+
+## Example Consumer
+
+A small sample application lives in
+[`examples/consumer-app`](examples/consumer-app).
+The Linux end-to-end test builds that binary into an OCI image and runs it in a
+container started from a transient `systemd` unit with `LoadCredential=`.
+
+## Development
+
+Use the flake as the single development and CI entrypoint.
+
+```bash
+nix develop
+nix flake check
+```
+
+For targeted checks:
+
+```bash
+nix build .#checks.x86_64-linux.clippy
+nix build .#checks.x86_64-linux.nextest
+nix build .#checks.x86_64-linux.e2e-podman
+```
+
+## Status
+
+Work in progress but usable in production in general since it is so "simplistic".

@@ -1,10 +1,25 @@
-use std::{fs::OpenOptions, io::Read, path::PathBuf};
+//! Helpers for reading credentials injected by `systemd`.
+//!
+//! `systemd` services can expose credentials to a process by setting the
+//! `CREDENTIALS_DIRECTORY` environment variable to a directory that contains one
+//! file per credential. This crate provides small helper functions to discover
+//! and load those files without requiring the caller to manually walk the
+//! directory.
+//!
+//! The crate assumes the current process was started by `systemd`, or that the
+//! caller has otherwise set `CREDENTIALS_DIRECTORY` to a compatible directory.
+
+use std::{fmt, fs::OpenOptions, io::Read, path::PathBuf};
 
 #[derive(Debug)]
 pub enum Error {
     IO(std::io::Error),
     Env(std::env::VarError),
 }
+
+pub type Credential = (String, Vec<u8>);
+pub type CredentialLoadResult = Result<Credential, Error>;
+pub type CredentialLoadResults = Vec<CredentialLoadResult>;
 
 impl From<std::env::VarError> for Error {
     fn from(value: std::env::VarError) -> Self {
@@ -18,8 +33,40 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::IO(err) => write!(f, "I/O error while reading systemd credentials: {err}"),
+            Error::Env(err) => write!(f, "environment error while reading credentials: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::IO(err) => Some(err),
+            Error::Env(err) => Some(err),
+        }
+    }
+}
+
 const CREDENTIALS_DIRECTORY: &str = "CREDENTIALS_DIRECTORY";
 
+/// Discovers credential files in `CREDENTIALS_DIRECTORY`.
+///
+/// Only regular files in the top-level credentials directory are returned.
+/// Nested directories are ignored.
+///
+/// # Examples
+///
+/// ```no_run
+/// let credential_paths = systemd_creds_rs::discover()?;
+/// for path in credential_paths {
+///     println!("{}", path.display());
+/// }
+/// # Ok::<(), systemd_creds_rs::Error>(())
+/// ```
 pub fn discover() -> Result<Vec<PathBuf>, Error> {
     let dir = std::env::var(CREDENTIALS_DIRECTORY)?;
     let dir_iter = std::fs::read_dir(&dir)?;
@@ -47,8 +94,17 @@ pub fn discover() -> Result<Vec<PathBuf>, Error> {
 /// If it's not present returns an error from std::env:var which currently would be,
 /// [`std::env::VarError::NotPresent`]. Please double check the std lib if you must rely on this.
 ///
+/// # Examples
 ///
-pub fn load_all() -> Result<Vec<Result<(String, Vec<u8>), Error>>, Error> {
+/// ```no_run
+/// let credentials = systemd_creds_rs::load_all()?;
+/// for credential in credentials {
+///     let (name, bytes) = credential?;
+///     println!("{name}: {} bytes", bytes.len());
+/// }
+/// # Ok::<(), systemd_creds_rs::Error>(())
+/// ```
+pub fn load_all() -> Result<CredentialLoadResults, Error> {
     let dir = std::env::var(CREDENTIALS_DIRECTORY)?;
     let dir_iter = std::fs::read_dir(&dir)?;
     let entries = dir_iter
@@ -83,24 +139,85 @@ pub fn load_all() -> Result<Vec<Result<(String, Vec<u8>), Error>>, Error> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{fs, io::Write};
 
     use tempfile::tempdir;
 
-    use crate::{CREDENTIALS_DIRECTORY, discover};
+    use crate::{CREDENTIALS_DIRECTORY, discover, load_all};
+
+    fn set_credentials_directory(path: &std::path::Path) {
+        unsafe {
+            std::env::set_var(
+                CREDENTIALS_DIRECTORY,
+                path.to_str()
+                    .expect("should be able to convert OsStr to &str"),
+            );
+        }
+    }
 
     #[test]
     fn discover_none() {
         let dir = tempdir().expect("should be able to create tempdir");
-        unsafe {
-            std::env::set_var(
-                CREDENTIALS_DIRECTORY,
-                dir.path()
-                    .to_str()
-                    .expect("should be able to convert OsStr to &str"),
-            );
-        }
+        set_credentials_directory(dir.path());
         let creds = discover().unwrap();
         assert_eq!(0, creds.len());
+    }
+
+    #[test]
+    fn discover_errors_when_credentials_directory_is_missing() {
+        unsafe {
+            std::env::remove_var(CREDENTIALS_DIRECTORY);
+        }
+
+        let err = discover().expect_err("missing environment variable should fail");
+        assert!(matches!(
+            err,
+            crate::Error::Env(std::env::VarError::NotPresent)
+        ));
+    }
+
+    #[test]
+    fn discover_skips_nested_directories() {
+        let dir = tempdir().expect("should be able to create tempdir");
+        let nested = dir.path().join("nested");
+        fs::create_dir(&nested).expect("should create nested directory");
+        fs::write(dir.path().join("db-password"), b"secret").expect("should write credential");
+        fs::write(nested.join("ignored"), b"nested-secret").expect("should write nested file");
+
+        set_credentials_directory(dir.path());
+
+        let creds = discover().expect("discover should succeed");
+        assert_eq!(creds, vec![dir.path().join("db-password")]);
+    }
+
+    #[test]
+    fn load_all_reads_all_credential_files() {
+        let dir = tempdir().expect("should be able to create tempdir");
+        let mut api_key =
+            fs::File::create(dir.path().join("api-key")).expect("should create api-key");
+        api_key
+            .write_all(b"very-secret")
+            .expect("should write api-key");
+        fs::write(dir.path().join("token"), b"abc123").expect("should write token");
+        fs::create_dir(dir.path().join("nested")).expect("should create nested directory");
+        set_credentials_directory(dir.path());
+
+        let mut creds = load_all().expect("load_all should succeed");
+        creds.sort_by(|left, right| {
+            left.as_ref()
+                .expect("expected successful credential")
+                .0
+                .cmp(&right.as_ref().expect("expected successful credential").0)
+        });
+
+        assert_eq!(creds.len(), 2);
+        assert_eq!(
+            creds[0].as_ref().expect("credential should load"),
+            &("api-key".to_string(), b"very-secret".to_vec())
+        );
+        assert_eq!(
+            creds[1].as_ref().expect("credential should load"),
+            &("token".to_string(), b"abc123".to_vec())
+        );
     }
 }
